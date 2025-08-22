@@ -38,25 +38,25 @@ Be specific and actionable in your recommendations. Format your response clearly
       console.log('Calling Claude API...');
 
       const response = await fetch('https://cors-anywhere.herokuapp.com/https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: 'claude-3-sonnet-20240229',
-          max_tokens: 2000,
-          system: systemPrompt,
-          messages: [
-            {
-              role: 'user',
-              content: userMessage
-            }
-          ]
-          // Removing tools for now to test Claude-only functionality
-        })
-      });
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-api-key': ANTHROPIC_API_KEY,
+    'anthropic-version': '2023-06-01',
+    'X-Requested-With': 'XMLHttpRequest'
+  },
+  body: JSON.stringify({
+    model: 'claude-3-sonnet-20240229',
+    max_tokens: 2000,
+    system: systemPrompt,
+    messages: [
+      {
+        role: 'user',
+        content: userMessage
+      }
+    ]
+  })
+});
 
       if (!response.ok) {
         const errorData = await response.text();
