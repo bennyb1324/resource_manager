@@ -13,6 +13,239 @@ const SocialWorkerApp = () => {
   // Demo mode for testing without backend
   const [demoMode, setDemoMode] = useState(true);
 
+  // Claude API integration function
+  const searchGooglePlaces = async (location, serviceType, keywords = '') => {
+    try {
+      const GOOGLE_PLACES_API_KEY = process.env.REACT_APP_GOOGLE_PLACES_API_KEY;
+      
+      if (!GOOGLE_PLACES_API_KEY) {
+        return { error: "Google Places API key not configured" };
+      }
+
+      const baseUrl = "https://maps.googleapis.com/maps/api/place/textsearch/json";
+      
+      // Create targeted search queries for different service types
+      const searchQueries = {
+        "food": `food pantry near ${location} OR food bank near ${location} OR emergency food assistance ${location}`,
+        "housing": `homeless shelter near ${location} OR housing assistance ${location} OR transitional housing ${location}`,
+        "employment": `job training near ${location} OR employment services ${location} OR workforce development ${location}`,
+        "healthcare": `community health center near ${location} OR free clinic ${location} OR health services ${location}`,
+        "childcare": `childcare assistance near ${location} OR head start ${location} OR daycare subsidies ${location}`,
+        "transportation": `public transportation near ${location} OR bus services ${location} OR transportation assistance ${location}`,
+        "financial": `financial assistance near ${location} OR emergency aid ${location} OR utility assistance ${location}`,
+        "mental_health": `mental health services near ${location} OR counseling center ${location} OR therapy ${location}`,
+        "senior": `senior center near ${location} OR elderly services ${location} OR senior assistance ${location}`,
+        "disability": `disability services near ${location} OR accessibility resources ${location}`,
+        "legal": `legal aid near ${location} OR free legal services ${location} OR legal assistance ${location}`,
+        "education": `adult education near ${location} OR GED classes ${location} OR literacy programs ${location}`
+      };
+      
+      const query = searchQueries[serviceType] || `${serviceType} social services nonprofit near ${location}`;
+      
+      if (keywords) {
+        query += ` ${keywords}`;
+      }
+      
+      // Using a CORS proxy for demo purposes - in production, this should be done server-side
+      const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
+      const params = new URLSearchParams({
+        query: query,
+        key: GOOGLE_PLACES_API_KEY,
+        type: 'establishment'
+      });
+      
+      const response = await fetch(`${proxyUrl}${baseUrl}?${params}`);
+      const data = await response.json();
+      
+      // Filter and format results
+      const filteredResults = [];
+      if (data.results) {
+        for (const place of data.results.slice(0, 10)) {
+          filteredResults.push({
+            name: place.name || "Unknown",
+            address: place.formatted_address || "Address not available",
+            phone: "Call for information",
+            rating: place.rating || "No rating",
+            price_level: place.price_level || "Free/Low-cost",
+            business_status: place.business_status || "Unknown",
+            place_id: place.place_id,
+            types: place.types || []
+          });
+        }
+      }
+      
+      return {
+        results: filteredResults,
+        search_query: query,
+        total_results: filteredResults.length
+      };
+      
+    } catch (error) {
+      return { error: `Google Places API error: ${error.message}` };
+    }
+  };
+
+  const callClaudeAPI = async (userMessage) => {
+    try {
+      const ANTHROPIC_API_KEY = process.env.REACT_APP_ANTHROPIC_API_KEY;
+      
+      if (!ANTHROPIC_API_KEY) {
+        throw new Error("Claude API key not configured");
+      }
+
+      const systemPrompt = `You are an expert social services resource assistant helping social workers find resources for their clients.
+
+When given client needs and location:
+1. Analyze the client's needs and identify specific service types required
+2. For each service type, call the search_google_places function to find local resources
+3. Provide specific, actionable recommendations with:
+   - Organization name and contact information
+   - Address and phone number when available
+   - Hours of operation when possible
+   - Brief description of services
+   - Specific next steps (call today, bring documents, etc.)
+   - Any eligibility requirements
+
+Service categories to consider:
+- food: Food pantries, food banks, emergency food assistance
+- housing: Homeless shelters, transitional housing, rental assistance  
+- employment: Job training, workforce development, employment services
+- healthcare: Community health centers, free clinics, medical services
+- childcare: Daycare assistance, Head Start programs, child care subsidies
+- transportation: Public transit, transportation vouchers, medical transport
+- financial: Emergency financial assistance, utility help, cash aid
+- mental_health: Counseling services, mental health centers, therapy
+- senior: Senior centers, elderly services, aging resources
+- disability: Disability services, accessibility resources, support services
+- legal: Legal aid, free legal services, advocacy
+- education: Adult education, GED classes, literacy programs
+
+Always search multiple service types if the client has multiple needs. Be thorough but practical in your recommendations.`;
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-sonnet-20240229',
+          max_tokens: 2000,
+          system: systemPrompt,
+          messages: [
+            {
+              role: 'user',
+              content: userMessage
+            }
+          ],
+          tools: [
+            {
+              name: 'search_google_places',
+              description: 'Search Google Places for social services, nonprofits, food pantries, and community resources',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  location: {
+                    type: 'string',
+                    description: 'ZIP code, city and state, or specific address'
+                  },
+                  service_type: {
+                    type: 'string',
+                    description: 'Type of service: food, housing, employment, healthcare, childcare, transportation, financial, mental_health, senior, disability, legal, education'
+                  },
+                  keywords: {
+                    type: 'string',
+                    description: 'Additional search terms to refine the search'
+                  }
+                },
+                required: ['location', 'service_type']
+              }
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Claude API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      // Handle tool use in Claude's response
+      if (data.content && data.content.some(block => block.type === 'tool_use')) {
+        const toolUses = data.content.filter(block => block.type === 'tool_use');
+        const toolResults = [];
+        
+        // Execute each tool call
+        for (const toolUse of toolUses) {
+          if (toolUse.name === 'search_google_places') {
+            const result = await searchGooglePlaces(
+              toolUse.input.location,
+              toolUse.input.service_type,
+              toolUse.input.keywords
+            );
+            toolResults.push({
+              tool_use_id: toolUse.id,
+              content: JSON.stringify(result, null, 2)
+            });
+          }
+        }
+        
+        // Send tool results back to Claude for final response
+        const finalResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: 'claude-3-sonnet-20240229',
+            max_tokens: 2500,
+            system: systemPrompt,
+            messages: [
+              {
+                role: 'user',
+                content: userMessage
+              },
+              {
+                role: 'assistant',
+                content: data.content
+              },
+              {
+                role: 'user',
+                content: toolResults
+              }
+            ]
+          })
+        });
+
+        const finalData = await finalResponse.json();
+        
+        return {
+          recommendations: finalData.content.find(block => block.type === 'text')?.text || 'No response generated',
+          functions_used: toolUses.map(tool => tool.name),
+          success: true
+        };
+      } else {
+        // No tool use, direct response
+        return {
+          recommendations: data.content.find(block => block.type === 'text')?.text || 'No response generated',
+          functions_used: [],
+          success: true
+        };
+      }
+      
+    } catch (error) {
+      console.error('Claude API Error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -29,30 +262,25 @@ const SocialWorkerApp = () => {
         setRecommendations(demoResponse);
         setFunctionsUsed(['search_google_places']);
       } else {
-        // Real API call to backend
-        const response = await fetch('/api/get-recommendations', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            client_needs: clientNeeds,
-            location: location,
-            client_demographics: demographics
-          })
-        });
+        // Real Claude API call
+        const userMessage = `Client Information:
+Needs: ${clientNeeds}
+Location: ${location}
+Demographics: ${demographics || 'Not specified'}
+
+Please search for relevant resources and provide specific recommendations with contact information and next steps.`;
+
+        const result = await callClaudeAPI(userMessage);
         
-        const data = await response.json();
-        
-        if (data.success) {
-          setRecommendations(data.recommendations);
-          setFunctionsUsed(data.functions_used || []);
+        if (result.success) {
+          setRecommendations(result.recommendations);
+          setFunctionsUsed(result.functions_used || []);
         } else {
-          setError('Error: ' + data.detail);
+          setError('Error: ' + result.error);
         }
       }
     } catch (error) {
-      setError('Error connecting to server: ' + error.message);
+      setError('Error: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -203,6 +431,11 @@ const SocialWorkerApp = () => {
               Demo Mode (for testing without API keys)
             </label>
           </div>
+          
+          {/* API Status */}
+          <div className="mt-2 text-xs text-gray-500">
+            {demoMode ? 'Demo Mode: Showing sample data' : 'Live Mode: Using Claude AI + Google Places API'}
+          </div>
         </div>
 
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-8">
@@ -314,8 +547,8 @@ const SocialWorkerApp = () => {
                   <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                     ✓ Google Places
                   </span>
-                  <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                    ✓ AI Analysis
+                  <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">
+                    ✓ Claude AI
                   </span>
                 </div>
               )}
@@ -326,8 +559,8 @@ const SocialWorkerApp = () => {
                 <div className="flex items-center justify-center h-64">
                   <div className="text-center">
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
-                    <p className="text-gray-600 mb-2">Searching multiple databases...</p>
-                    <p className="text-sm text-gray-500">This may take 10-15 seconds</p>
+                    <p className="text-gray-600 mb-2">Claude is analyzing client needs...</p>
+                    <p className="text-sm text-gray-500">Searching multiple databases...</p>
                   </div>
                 </div>
               ) : error ? (
@@ -335,6 +568,9 @@ const SocialWorkerApp = () => {
                   <div className="text-center">
                     <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-4" />
                     <p className="text-red-600">{error}</p>
+                    <p className="text-sm text-gray-500 mt-2">
+                      {!demoMode && "Check that your API keys are properly configured"}
+                    </p>
                   </div>
                 </div>
               ) : recommendations ? (
@@ -395,7 +631,7 @@ const SocialWorkerApp = () => {
           <div className="mb-4 flex justify-center space-x-4">
             <span className="flex items-center">
               <CheckCircle className="w-4 h-4 text-green-500 mr-1" />
-              AI-Powered Analysis
+              Claude AI Analysis
             </span>
             <span className="flex items-center">
               <CheckCircle className="w-4 h-4 text-green-500 mr-1" />
@@ -407,13 +643,10 @@ const SocialWorkerApp = () => {
             </span>
           </div>
           <p className="mb-2">
-            Powered by OpenAI GPT-4 and Google Places API
+            Powered by Claude AI and Google Places API
           </p>
           <p className="text-sm">
             Always verify resource information and availability before referring clients
-          </p>
-          <p className="text-xs text-gray-500 mt-2">
-            {demoMode ? 'Demo Mode: Showing sample data' : 'Live Mode: Using real APIs'}
           </p>
         </div>
       </div>
