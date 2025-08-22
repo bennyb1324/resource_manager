@@ -37,7 +37,7 @@ Be specific and actionable in your recommendations. Format your response clearly
 
       console.log('Calling Claude API...');
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('https://cors-anywhere.herokuapp.com/https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
