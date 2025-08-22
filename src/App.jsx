@@ -43,6 +43,7 @@ Be specific and actionable in your recommendations. Format your response clearly
     'Content-Type': 'application/json',
     'x-api-key': ANTHROPIC_API_KEY,
     'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true',
     'X-Requested-With': 'XMLHttpRequest'
   },
   body: JSON.stringify({
