@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Search, MapPin, User, Phone, Clock, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
 // ADD YOUR ACTUAL API KEYS HERE - Replace these placeholder values
-const ANTHROPIC_API_KEY = 'sk-ant-your-actual-claude-key-here';
+const OPENAI_API_KEY = 'sk-your-actual-openai-key-here';
 const GOOGLE_PLACES_API_KEY = 'your-actual-google-key-here';
 
 const SocialWorkerApp = () => {
@@ -17,64 +17,79 @@ const SocialWorkerApp = () => {
   // Demo mode for testing without backend
   const [demoMode, setDemoMode] = useState(true);
 
-  // Claude API integration function - simplified for testing
-  const callClaudeAPI = async (userMessage) => {
+  // OpenAI GPT-4 API integration function
+  const callOpenAIAPI = async (userMessage) => {
     try {
-      if (!ANTHROPIC_API_KEY || ANTHROPIC_API_KEY === 'sk-ant-your-actual-claude-key-here') {
-        throw new Error("Claude API key not configured - please add your real API key");
+      if (!OPENAI_API_KEY || OPENAI_API_KEY === 'sk-your-actual-openai-key-here') {
+        throw new Error("OpenAI API key not configured - please add your real API key");
       }
 
       const systemPrompt = `You are an expert social services resource assistant helping social workers find resources for their clients.
 
 When given client needs and location, provide specific recommendations including:
 - Types of services needed (food assistance, housing, employment, healthcare, etc.)
-- General guidance on what resources to look for
+- Specific organizations and resource types to look for in their area
 - Next steps and documentation typically needed
 - Local resource types commonly available
 - Eligibility considerations
+- Emergency contacts when appropriate
 
-Be specific and actionable in your recommendations. Format your response clearly with service categories and next steps.`;
+Format your response clearly with:
+- Service categories (🍽️ FOOD ASSISTANCE, 🏠 HOUSING, 💼 EMPLOYMENT, etc.)
+- Specific next steps with action items
+- Contact information guidance
+- Required documentation
+- Eligibility requirements
 
-      console.log('Calling Claude API...');
+Be specific and actionable in your recommendations. Focus on practical steps the social worker can take immediately.`;
 
-      const response = await fetch('https://cors-anywhere.herokuapp.com/https://api.anthropic.com/v1/messages', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'x-api-key': ANTHROPIC_API_KEY,
-    'anthropic-version': '2023-06-01',
-    'anthropic-dangerous-direct-browser-access': 'true',
-    'X-Requested-With': 'XMLHttpRequest'
-  },
-  body: JSON.stringify({
-    model: 'claude-3-sonnet-20240229',
-    max_tokens: 2000,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: userMessage
-      }
-    ]
-  })
-});
+      console.log('Calling OpenAI GPT-4 API...');
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'User-Agent': 'SocialWorkerApp/1.0'
+        },
+        body: JSON.stringify({
+          model: 'gpt-4',
+          max_tokens: 2000,
+          temperature: 0.3,
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: userMessage
+            }
+          ]
+        })
+      });
 
       if (!response.ok) {
         const errorData = await response.text();
-        throw new Error(`Claude API error: ${response.status} ${response.statusText} - ${errorData}`);
+        console.error('OpenAI API Error Response:', errorData);
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${errorData}`);
       }
 
       const data = await response.json();
-      console.log('Claude API response:', data);
+      console.log('OpenAI API response:', data);
+      
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        throw new Error('Invalid response format from OpenAI');
+      }
       
       return {
-        recommendations: data.content.find(block => block.type === 'text')?.text || 'No response generated',
-        functions_used: ['claude_analysis'],
+        recommendations: data.choices[0].message.content || 'No response generated',
+        functions_used: ['gpt4_analysis'],
         success: true
       };
       
     } catch (error) {
-      console.error('Claude API Error:', error);
+      console.error('OpenAI API Error:', error);
       return {
         success: false,
         error: error.message
@@ -98,16 +113,16 @@ Be specific and actionable in your recommendations. Format your response clearly
         setRecommendations(demoResponse);
         setFunctionsUsed(['demo_mode']);
       } else {
-        // Real Claude API call
+        // Real OpenAI GPT-4 API call
         const userMessage = `Client Information:
 Needs: ${clientNeeds}
 Location: ${location}
 Demographics: ${demographics || 'Not specified'}
 
-Please provide specific resource recommendations for this client, including what types of services to look for and next steps.`;
+Please provide specific resource recommendations for this client, including what types of services to look for, specific organizations or resource types commonly available in this area, and actionable next steps.`;
 
-        console.log('Sending request to Claude...');
-        const result = await callClaudeAPI(userMessage);
+        console.log('Sending request to OpenAI GPT-4...');
+        const result = await callOpenAIAPI(userMessage);
         
         if (result.success) {
           setRecommendations(result.recommendations);
@@ -271,7 +286,7 @@ Please provide specific resource recommendations for this client, including what
           
           {/* API Status */}
           <div className="mt-2 text-xs text-gray-500">
-            {demoMode ? 'Demo Mode: Showing sample data' : 'Live Mode: Using Claude AI (Google Places temporarily disabled)'}
+            {demoMode ? 'Demo Mode: Showing sample data' : 'Live Mode: Using GPT-4 AI (Google Places coming soon)'}
           </div>
         </div>
 
@@ -334,7 +349,7 @@ Please provide specific resource recommendations for this client, including what
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    {demoMode ? 'Generating Demo Results...' : 'Claude is analyzing client needs...'}
+                    {demoMode ? 'Generating Demo Results...' : 'GPT-4 is analyzing client needs...'}
                   </>
                 ) : (
                   <>
@@ -369,7 +384,7 @@ Please provide specific resource recommendations for this client, including what
                 <li>• Add their location (ZIP code works best)</li>
                 <li>• Click "Find Resources" to get specific recommendations</li>
                 <li>• Results include service types and next steps</li>
-                <li>• {demoMode ? 'Demo mode shows sample data' : 'Live mode uses Claude AI analysis'}</li>
+                <li>• {demoMode ? 'Demo mode shows sample data' : 'Live mode uses GPT-4 AI analysis'}</li>
               </ul>
             </div>
           </div>
@@ -383,8 +398,8 @@ Please provide specific resource recommendations for this client, including what
               {functionsUsed.length > 0 && (
                 <div className="flex space-x-2">
                   {!demoMode && (
-                    <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">
-                      ✓ Claude AI
+                    <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                      ✓ GPT-4 AI
                     </span>
                   )}
                   {demoMode && (
@@ -402,7 +417,7 @@ Please provide specific resource recommendations for this client, including what
                   <div className="text-center">
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
                     <p className="text-gray-600 mb-2">
-                      {demoMode ? 'Generating demo results...' : 'Claude is analyzing client needs...'}
+                      {demoMode ? 'Generating demo results...' : 'GPT-4 is analyzing client needs...'}
                     </p>
                     <p className="text-sm text-gray-500">This may take a few seconds</p>
                   </div>
@@ -413,7 +428,7 @@ Please provide specific resource recommendations for this client, including what
                     <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-4" />
                     <p className="text-red-600 mb-2">{error}</p>
                     <p className="text-sm text-gray-500">
-                      {!demoMode && "Make sure to add your actual Claude API key to the code"}
+                      {!demoMode && "Make sure to add your actual OpenAI API key to the code"}
                     </p>
                   </div>
                 </div>
@@ -435,8 +450,8 @@ Please provide specific resource recommendations for this client, including what
                       </p>
                     )}
                     {!demoMode && (
-                      <p className="text-sm text-purple-600 mt-2">
-                        Live mode - add your Claude API key to test real AI responses!
+                      <p className="text-sm text-green-600 mt-2">
+                        Live mode - add your OpenAI API key to test real AI responses!
                       </p>
                     )}
                   </div>
@@ -480,7 +495,7 @@ Please provide specific resource recommendations for this client, including what
           <div className="mb-4 flex justify-center space-x-4">
             <span className="flex items-center">
               <CheckCircle className="w-4 h-4 text-green-500 mr-1" />
-              Claude AI Analysis
+              GPT-4 AI Analysis
             </span>
             <span className="flex items-center">
               <CheckCircle className="w-4 h-4 text-gray-400 mr-1" />
@@ -492,7 +507,7 @@ Please provide specific resource recommendations for this client, including what
             </span>
           </div>
           <p className="mb-2">
-            Powered by Claude AI {!demoMode && '(Google Places integration coming soon)'}
+            Powered by OpenAI GPT-4 {!demoMode && '(Google Places integration coming soon)'}
           </p>
           <p className="text-sm">
             Always verify resource information and availability before referring clients
