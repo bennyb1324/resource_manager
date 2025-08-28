@@ -97,6 +97,155 @@ Be specific and actionable in your recommendations. Focus on practical steps the
     }
   };
 
+  // Google Places API integration function
+  const searchLocalResources = async (query, location) => {
+    try {
+      if (!GOOGLE_PLACES_API_KEY || GOOGLE_PLACES_API_KEY === 'your-actual-google-key-here') {
+        console.log('Google Places API key not configured - skipping local search');
+        return { success: false, error: 'Google Places API key not configured' };
+      }
+
+      // First, get coordinates from the location
+      const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(location)}&key=${GOOGLE_PLACES_API_KEY}`;
+      
+      const geocodeResponse = await fetch(geocodeUrl);
+      const geocodeData = await geocodeResponse.json();
+      
+      if (!geocodeData.results || geocodeData.results.length === 0) {
+        throw new Error('Could not find location coordinates');
+      }
+      
+      const { lat, lng } = geocodeData.results[0].geometry.location;
+      
+      // Search for relevant places nearby
+      const searchQueries = generateSearchQueries(query);
+      const allResults = [];
+      
+      for (const searchQuery of searchQueries) {
+        try {
+          const placesUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery + ' near ' + location)}&location=${lat},${lng}&radius=10000&key=${GOOGLE_PLACES_API_KEY}`;
+          
+          const placesResponse = await fetch(placesUrl);
+          const placesData = await placesResponse.json();
+          
+          if (placesData.results) {
+            // Get detailed info for top results
+            for (const place of placesData.results.slice(0, 3)) {
+              try {
+                const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,opening_hours,website,rating&key=${GOOGLE_PLACES_API_KEY}`;
+                
+                const detailsResponse = await fetch(detailsUrl);
+                const detailsData = await detailsResponse.json();
+                
+                if (detailsData.result) {
+                  allResults.push({
+                    name: detailsData.result.name,
+                    address: detailsData.result.formatted_address,
+                    phone: detailsData.result.formatted_phone_number || 'Phone not available',
+                    website: detailsData.result.website || 'Website not available',
+                    rating: detailsData.result.rating || 'No rating',
+                    hours: detailsData.result.opening_hours?.weekday_text || ['Hours not available'],
+                    category: searchQuery
+                  });
+                }
+              } catch (error) {
+                console.log('Error getting place details:', error);
+              }
+            }
+          }
+        } catch (error) {
+          console.log('Error searching places for:', searchQuery, error);
+        }
+      }
+      
+      return {
+        success: true,
+        results: allResults
+      };
+      
+    } catch (error) {
+      console.error('Google Places API Error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  };
+
+  // Helper function to generate search queries based on client needs
+  const generateSearchQueries = (clientNeeds) => {
+    const needsLower = clientNeeds.toLowerCase();
+    const queries = [];
+    
+    if (needsLower.includes('food') || needsLower.includes('hungry') || needsLower.includes('eat')) {
+      queries.push('food bank', 'food pantry', 'soup kitchen');
+    }
+    
+    if (needsLower.includes('job') || needsLower.includes('work') || needsLower.includes('employ')) {
+      queries.push('job training center', 'employment services', 'career center');
+    }
+    
+    if (needsLower.includes('housing') || needsLower.includes('homeless') || needsLower.includes('shelter')) {
+      queries.push('homeless shelter', 'housing assistance', 'social services');
+    }
+    
+    if (needsLower.includes('child') || needsLower.includes('daycare')) {
+      queries.push('childcare center', 'head start program', 'family services');
+    }
+    
+    if (needsLower.includes('health') || needsLower.includes('medical') || needsLower.includes('doctor')) {
+      queries.push('community health center', 'free clinic', 'medical clinic');
+    }
+    
+    if (needsLower.includes('mental') || needsLower.includes('counsel') || needsLower.includes('therapy')) {
+      queries.push('mental health center', 'counseling center', 'community mental health');
+    }
+    
+    // Default fallback
+    if (queries.length === 0) {
+      queries.push('social services', 'community services', 'nonprofit organization');
+    }
+    
+    return queries;
+  };
+
+  // Format Google Places results for display
+  const formatGooglePlacesResults = (placesResults) => {
+    if (!placesResults || placesResults.length === 0) {
+      return '\n🔍 LOCAL RESOURCES:\nNo specific local resources found through Google Places. Please check 211 or local directories.\n';
+    }
+    
+    let formatted = '\n🔍 LOCAL RESOURCES FOUND:\n\n';
+    
+    const groupedByCategory = placesResults.reduce((acc, place) => {
+      if (!acc[place.category]) {
+        acc[place.category] = [];
+      }
+      acc[place.category].push(place);
+      return acc;
+    }, {});
+    
+    Object.entries(groupedByCategory).forEach(([category, places]) => {
+      formatted += `📍 ${category.toUpperCase()}:\n\n`;
+      
+      places.forEach(place => {
+        formatted += `• ${place.name}\n`;
+        formatted += `  📍 ${place.address}\n`;
+        formatted += `  📞 ${place.phone}\n`;
+        if (place.website !== 'Website not available') {
+          formatted += `  🌐 ${place.website}\n`;
+        }
+        if (place.rating !== 'No rating') {
+          formatted += `  ⭐ Rating: ${place.rating}/5\n`;
+        }
+        formatted += `  🕒 Hours: ${Array.isArray(place.hours) ? place.hours[0] : place.hours}\n`;
+        formatted += `  ➤ NEXT STEPS: Call ahead to verify services and availability\n\n`;
+      });
+    });
+    
+    return formatted;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -113,7 +262,7 @@ Be specific and actionable in your recommendations. Focus on practical steps the
         setRecommendations(demoResponse);
         setFunctionsUsed(['demo_mode']);
       } else {
-        // Real OpenAI GPT-4 API call
+        // Real API calls - both OpenAI and Google Places
         const userMessage = `Client Information:
 Needs: ${clientNeeds}
 Location: ${location}
@@ -122,14 +271,43 @@ Demographics: ${demographics || 'Not specified'}
 Please provide specific resource recommendations for this client, including what types of services to look for, specific organizations or resource types commonly available in this area, and actionable next steps.`;
 
         console.log('Sending request to OpenAI GPT-4...');
-        const result = await callOpenAIAPI(userMessage);
         
-        if (result.success) {
-          setRecommendations(result.recommendations);
-          setFunctionsUsed(result.functions_used || []);
+        // Call both APIs concurrently
+        const [gptResult, placesResult] = await Promise.all([
+          callOpenAIAPI(userMessage),
+          searchLocalResources(clientNeeds, location)
+        ]);
+        
+        let functionsUsed = [];
+        let finalResponse = '';
+        
+        if (gptResult.success) {
+          finalResponse = gptResult.recommendations;
+          functionsUsed.push('gpt4_analysis');
         } else {
-          setError('Error: ' + result.error);
+          setError('OpenAI Error: ' + gptResult.error);
+          return;
         }
+        
+        // Add Google Places results if available
+        if (placesResult.success && placesResult.results.length > 0) {
+          const googlePlacesFormatted = formatGooglePlacesResults(placesResult.results);
+          finalResponse += googlePlacesFormatted;
+          functionsUsed.push('google_places');
+        } else if (placesResult.error && !placesResult.error.includes('not configured')) {
+          // Only show error if it's not just missing API key
+          finalResponse += '\n⚠️ Note: Could not retrieve local Google Places data: ' + placesResult.error;
+        }
+        
+        // Add disclaimer
+        finalResponse += '\n\n📋 IMPORTANT DISCLAIMER:\n';
+        finalResponse += '• Always call ahead to verify current services, hours, and eligibility\n';
+        finalResponse += '• Information is based on AI analysis and may not be complete\n';
+        finalResponse += '• Consider calling 2-1-1 for additional local resources\n';
+        finalResponse += '• Verify all contact information before referring clients';
+        
+        setRecommendations(finalResponse);
+        setFunctionsUsed(functionsUsed);
       }
     } catch (error) {
       setError('Error: ' + error.message);
@@ -284,9 +462,12 @@ Please provide specific resource recommendations for this client, including what
             </label>
           </div>
           
-          {/* API Status */}
+          {/* Updated API Status */}
           <div className="mt-2 text-xs text-gray-500">
-            {demoMode ? 'Demo Mode: Showing sample data' : 'Live Mode: Using GPT-4 AI (Google Places coming soon)'}
+            {demoMode 
+              ? 'Demo Mode: Showing sample data' 
+              : `Live Mode: GPT-4 ${GOOGLE_PLACES_API_KEY !== 'your-actual-google-key-here' ? '+ Google Places' : '(Google Places not configured)'}`
+            }
           </div>
         </div>
 
@@ -349,7 +530,7 @@ Please provide specific resource recommendations for this client, including what
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    {demoMode ? 'Generating Demo Results...' : 'GPT-4 is analyzing client needs...'}
+                    {demoMode ? 'Generating Demo Results...' : 'AI is analyzing client needs...'}
                   </>
                 ) : (
                   <>
@@ -384,7 +565,7 @@ Please provide specific resource recommendations for this client, including what
                 <li>• Add their location (ZIP code works best)</li>
                 <li>• Click "Find Resources" to get specific recommendations</li>
                 <li>• Results include service types and next steps</li>
-                <li>• {demoMode ? 'Demo mode shows sample data' : 'Live mode uses GPT-4 AI analysis'}</li>
+                <li>• {demoMode ? 'Demo mode shows sample data' : 'Live mode uses GPT-4 AI + Google Places'}</li>
               </ul>
             </div>
           </div>
@@ -397,9 +578,14 @@ Please provide specific resource recommendations for this client, including what
               </h2>
               {functionsUsed.length > 0 && (
                 <div className="flex space-x-2">
-                  {!demoMode && (
+                  {functionsUsed.includes('gpt4_analysis') && (
                     <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                       ✓ GPT-4 AI
+                    </span>
+                  )}
+                  {functionsUsed.includes('google_places') && (
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                      ✓ Google Places
                     </span>
                   )}
                   {demoMode && (
@@ -417,7 +603,7 @@ Please provide specific resource recommendations for this client, including what
                   <div className="text-center">
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
                     <p className="text-gray-600 mb-2">
-                      {demoMode ? 'Generating demo results...' : 'GPT-4 is analyzing client needs...'}
+                      {demoMode ? 'Generating demo results...' : 'AI is analyzing client needs...'}
                     </p>
                     <p className="text-sm text-gray-500">This may take a few seconds</p>
                   </div>
@@ -428,7 +614,7 @@ Please provide specific resource recommendations for this client, including what
                     <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-4" />
                     <p className="text-red-600 mb-2">{error}</p>
                     <p className="text-sm text-gray-500">
-                      {!demoMode && "Make sure to add your actual OpenAI API key to the code"}
+                      {!demoMode && "Make sure to add your actual API keys to the code"}
                     </p>
                   </div>
                 </div>
@@ -451,7 +637,7 @@ Please provide specific resource recommendations for this client, including what
                     )}
                     {!demoMode && (
                       <p className="text-sm text-green-600 mt-2">
-                        Live mode - add your OpenAI API key to test real AI responses!
+                        Live mode - add your API keys to test real AI responses!
                       </p>
                     )}
                   </div>
@@ -492,14 +678,17 @@ Please provide specific resource recommendations for this client, including what
 
         {/* Footer */}
         <div className="mt-12 text-center text-gray-600">
+          {/* Updated Footer Status Indicators */}
           <div className="mb-4 flex justify-center space-x-4">
             <span className="flex items-center">
               <CheckCircle className="w-4 h-4 text-green-500 mr-1" />
               GPT-4 AI Analysis
             </span>
             <span className="flex items-center">
-              <CheckCircle className="w-4 h-4 text-gray-400 mr-1" />
-              Google Places (Coming Soon)
+              <CheckCircle className={`w-4 h-4 mr-1 ${
+                GOOGLE_PLACES_API_KEY !== 'your-actual-google-key-here' ? 'text-green-500' : 'text-gray-400'
+              }`} />
+              Google Places {GOOGLE_PLACES_API_KEY !== 'your-actual-google-key-here' ? '✓' : '(Add API Key)'}
             </span>
             <span className="flex items-center">
               <CheckCircle className="w-4 h-4 text-green-500 mr-1" />
@@ -507,7 +696,7 @@ Please provide specific resource recommendations for this client, including what
             </span>
           </div>
           <p className="mb-2">
-            Powered by OpenAI GPT-4 {!demoMode && '(Google Places integration coming soon)'}
+            Powered by OpenAI GPT-4 {GOOGLE_PLACES_API_KEY !== 'your-actual-google-key-here' ? '+ Google Places API' : '(Google Places integration ready)'}
           </p>
           <p className="text-sm">
             Always verify resource information and availability before referring clients
